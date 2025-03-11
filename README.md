@@ -1,93 +1,231 @@
-# Speech-to-Text Transcription App
+# Voice Recognition Functionality Documentation
 
-This application provides speech-to-text transcription capabilities using Google's Speech-to-Text API. It supports both batch processing of audio files and real-time streaming transcription.
+## Overview
 
-## Features
+This document provides detailed information about the voice recognition functionality implemented in the Speech-to-Text Transcription demo PWA. The application provides both batch processing of audio files and real-time streaming transcription capabilities.
 
-- **Batch Transcription**: Upload pre-recorded audio files for transcription
-- **Real-time Streaming**: Transcribe speech in real-time using your microphone
-- **Google Speech API**: Powered by Google's advanced speech recognition technology
+## Table of Contents
 
-## Prerequisites
+1. [Architecture](#architecture)
+2. [Batch Transcription](#batch-transcription)
+3. [Real-time Streaming Transcription](#real-time-streaming-transcription)
+4. [Technical Implementation](#technical-implementation)
+5. [Setup and Configuration](#setup-and-configuration)
+6. [Troubleshooting](#troubleshooting)
+
+## Architecture
+
+The voice recognition system consists of the following components:
+
+- **Frontend**: A web application built with Lit Element that provides the user interface for both batch and streaming transcription.
+- **Backend**: A Node.js server that handles API requests and WebSocket connections.
+- **Google Speech-to-Text API**: The cloud service that performs the actual speech recognition.
+
+### Communication Flow
+
+1. **Batch Processing**:
+
+   - User uploads an audio file through the frontend
+   - File is sent to the backend via HTTP POST request
+   - Backend forwards the audio to Google's Speech-to-Text API
+   - Results are returned to the frontend
+
+2. **Real-time Streaming**:
+   - User initiates recording in the browser
+   - Audio chunks are sent to the backend via WebSocket
+   - Backend forwards audio chunks to Google's Speech-to-Text API in real-time
+   - Transcription results are streamed back to the frontend as they become available
+
+## Batch Transcription
+
+The batch transcription feature allows users to upload pre-recorded audio files for transcription.
+
+### Features
+
+- Supports various audio formats (WAV, MP3, FLAC, etc.)
+- Displays file information (name and size)
+- Shows transcription results in a scrollable container
+- Provides error handling and troubleshooting tips
+
+### Usage
+
+1. Navigate to the "Batch Transcription" tab
+2. Click "Choose File" to select an audio file
+3. Click "Upload & Transcribe"
+4. Wait for the transcription to complete
+5. View the transcription results
+
+### Technical Details
+
+- Uses the HTML5 File API to handle file selection
+- Sends the file to the server using `FormData` and `fetch` API
+- Processes the file on the server using Multer for file handling
+- Calls Google's Speech-to-Text API's `recognize` method for batch processing
+
+## Real-time Streaming Transcription
+
+The real-time streaming feature allows users to transcribe speech as they speak into their microphone.
+
+### Features
+
+- Real-time transcription with interim results
+- Visual recording indicator
+- Connection status monitoring
+- Error handling with retry capability
+
+### Usage
+
+1. Navigate to the "Real-time Streaming" tab
+2. Click "Start Recording" to begin capturing audio
+3. Speak into your microphone
+4. View transcription results in real-time
+5. Click "Stop Recording" when finished
+
+### Technical Details
+
+- Uses the MediaRecorder API to capture audio from the user's microphone
+- Configures audio with echo cancellation, noise suppression, and auto gain control
+- Streams audio in WebM/Opus format (with fallback to default codec if not supported)
+- Sends audio chunks to the server via Socket.IO
+- Uses Google's Speech-to-Text API's `streamingRecognize` method for real-time processing
+- Receives and displays both interim and final transcription results
+
+## Technical Implementation
+
+### Frontend Components
+
+1. **BatchTranscribe Component** (`src/components/batch-transcribe.ts`)
+
+   - Handles file selection and upload
+   - Displays transcription results
+   - Manages loading states and error handling
+
+2. **StreamingTranscribe Component** (`src/components/streaming-transcribe.ts`)
+
+   - Manages WebSocket connection to the server
+   - Controls the MediaRecorder for audio capture
+   - Displays real-time transcription results
+   - Handles connection errors and retries
+
+3. **Socket Client Helper** (`src/helpers/socket-client.ts`)
+   - Provides a wrapper for Socket.IO client
+   - Loads the Socket.IO library from CDN
+   - Configures connection parameters
+
+### Backend Implementation
+
+1. **Express Server** (`server/index.js`)
+
+   - Handles HTTP requests for batch transcription
+   - Configures CORS for cross-origin requests
+   - Serves the frontend application in production
+
+2. **Socket.IO Server** (`server/index.js`)
+
+   - Manages WebSocket connections for streaming
+   - Handles audio data streaming to Google's API
+   - Forwards transcription results back to clients
+
+3. **Google Speech-to-Text Integration**
+   - Configures the Speech-to-Text client with credentials
+   - Sets up appropriate recognition configurations for both batch and streaming modes
+   - Processes audio data and returns transcription results
+
+## Setup and Configuration
+
+### Prerequisites
 
 - Node.js (v14 or later)
 - Google Cloud Platform account with Speech-to-Text API enabled
 - Service account credentials (JSON key file)
 
-## Setup
+### Configuration Steps
 
-1. Clone the repository
-2. Install dependencies:
-   ```
-   npm install
-   ```
-3. Make sure your Google Cloud credentials file (`nlip-pwa-89f5620f7edd.json`) is in the root directory
+1. **Google Cloud Setup**
 
-## Running the Application
+   - Create a project in Google Cloud Platform
+   - Enable the Speech-to-Text API
+   - Create a service account and download the JSON key file
+   - Place the key file in the root directory of the project (`nlip-pwa-89f5620f7edd.json`)
 
-### Development Mode
+2. **Application Setup**
+   - Install dependencies: `npm install`
+   - Start the development servers: `npm run dev`
+   - Access the application at http://localhost:8080
 
-To run both the frontend and backend servers simultaneously:
+### Environment Configuration
 
-```
-npm run dev
-```
+The application uses different configuration files for different environments:
 
-This will start:
+- `config.ts` - Base configuration
+- `config.staging.ts` - Staging environment configuration
+- `config.production.ts` - Production environment configuration
 
-- The frontend development server at http://localhost:8080
-- The backend Node.js server at http://localhost:3000
+## Troubleshooting
 
-### Production Build
+### Common Issues
 
-To build the application for production:
+1. **Microphone Access Denied**
 
-```
-npm run build
-```
+   - Ensure your browser has permission to access the microphone
+   - Check browser settings to allow microphone access for the application
 
-Then start the server:
+2. **Connection Errors**
 
-```
-npm run start:server
-```
+   - Verify that both frontend and backend servers are running
+   - Check that the backend server is accessible at http://localhost:3000
+   - Ensure proper network connectivity
 
-The application will be available at http://localhost:3000
+3. **Transcription Quality Issues**
 
-## Usage
+   - Speak clearly and at a moderate pace
+   - Reduce background noise
+   - Use a good quality microphone
+   - Try adjusting your distance from the microphone
 
-1. Navigate to the home page
-2. Choose between "Batch Transcription" or "Real-time Streaming" using the tabs
+4. **File Upload Problems**
+   - Ensure the file is in a supported format
+   - Check that the file size is reasonable (less than 10MB recommended)
+   - Verify that the file contains speech content
 
-### Batch Transcription
+### Debugging Tips
 
-1. Click "Choose File" to select an audio file
-2. Click "Upload & Transcribe"
-3. Wait for the transcription to complete
-4. View the transcription results
+1. **Check Browser Console**
 
-Supported audio formats include WAV, MP3, FLAC, and others.
+   - Open browser developer tools (F12)
+   - Look for errors in the Console tab
 
-### Real-time Streaming
+2. **Server Logs**
 
-1. Click "Start Recording" to begin capturing audio from your microphone
-2. Speak clearly into your microphone
-3. View real-time transcription results as you speak
-4. Click "Stop Recording" when finished
+   - Monitor the Node.js server console for error messages
+   - Look for connection issues or API errors
 
-## Deployment
+3. **Network Monitoring**
 
-For production deployment:
+   - Use the Network tab in browser developer tools
+   - Check for failed requests or WebSocket connection issues
 
-1. Build the application: `npm run build`
-2. Set the environment variable for Google credentials:
-   ```
-   export GOOGLE_APPLICATION_CREDENTIALS="/path/to/nlip-pwa-89f5620f7edd.json"
-   ```
-3. Start the server: `npm run start:server`
+4. **Google API Quotas**
+   - Verify that you haven't exceeded Google Speech-to-Text API quotas
+   - Check the Google Cloud Console for quota information
 
-## Technologies Used
+## Limitations
 
-- **Frontend**: Lit, TypeScript, WebSockets (Socket.IO)
-- **Backend**: Node.js, Express, Google Cloud Speech-to-Text API
-- **Audio Processing**: MediaRecorder API, WebM/Opus encoding
+1. **Browser Compatibility**
+
+   - The MediaRecorder API may not be supported in all browsers
+   - WebM/Opus codec support varies across browsers
+
+2. **Network Requirements**
+
+   - Real-time streaming requires a stable internet connection
+   - High latency can affect the responsiveness of transcription
+
+3. **API Limitations**
+
+   - Google Speech-to-Text API has usage quotas and billing implications
+   - Some advanced features may require specific API configuration
+
+4. **Language Support**
+   - Currently configured for English (en-US)
+   - Supporting additional languages requires configuration changes
