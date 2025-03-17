@@ -1,9 +1,10 @@
-const path = require('path');
-const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
-const multer = require('multer');
+const path = require('path');
+
 const { SpeechClient } = require('@google-cloud/speech');
+const express = require('express');
+const multer = require('multer');
+const { Server } = require('socket.io');
 
 // 1) Express & Socket.IO Setup
 const app = express();
@@ -12,18 +13,22 @@ const server = http.createServer(app);
 // Configure Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:8080", "http://127.0.0.1:8080"],
-    methods: ["GET", "POST"],
-    credentials: true
+    origin: [
+      'http://localhost:8080',
+      'http://127.0.0.1:8080',
+      'https://voice.pipzza.pw',
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true,
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
 });
 
 // 2) Google Speech Client
 // This reads credentials from the GOOGLE_APPLICATION_CREDENTIALS env variable
 // or from the path we provide
 const speechClient = new SpeechClient({
-  keyFilename: path.join(__dirname, '../nlip-pwa-89f5620f7edd.json')
+  keyFilename: path.join(__dirname, '../nlip-pwa-89f5620f7edd.json'),
 });
 
 // 3) Multer for file uploads (in-memory)
@@ -31,12 +36,21 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // Enable CORS for Express
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header(
+    'Access-Control-Allow-Origin',
+    req.headers.origin || 'https://voice.pipzza.pw'
+  );
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept'
+  );
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Credentials', 'true');
   next();
 });
+
+// Serve static files from the build directory in production
+app.use(express.static(path.join(__dirname, '../')));
 
 // ---------------- BATCH API ENDPOINT ------------------
 
@@ -56,16 +70,16 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         content: audioBytes,
       },
       config: {
-        encoding: 'WEBM_OPUS',      // or 'LINEAR16', etc., as appropriate
-        sampleRateHertz: 48000,     // typical for webm/opus
+        encoding: 'WEBM_OPUS', // or 'LINEAR16', etc., as appropriate
+        sampleRateHertz: 48000, // typical for webm/opus
         languageCode: 'en-US',
-        enableAutomaticPunctuation: true
+        enableAutomaticPunctuation: true,
       },
     };
 
     const [response] = await speechClient.recognize(request);
     const transcription = response.results
-      .map(result => result.alternatives[0].transcript)
+      .map((result) => result.alternatives[0].transcript)
       .join('\n');
 
     res.json({ transcription });
@@ -89,11 +103,11 @@ io.on('connection', (socket) => {
     recognizeStream = speechClient
       .streamingRecognize({
         config: {
-          encoding: 'WEBM_OPUS',    // or 'LINEAR16' if you plan raw PCM
+          encoding: 'WEBM_OPUS', // or 'LINEAR16' if you plan raw PCM
           sampleRateHertz: 48000,
           languageCode: 'en-US',
           enableAutomaticPunctuation: true,
-          ...config
+          ...config,
         },
         interimResults: true, // get partial transcripts
       })
@@ -135,11 +149,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// ---------------- SERVE STATIC FILES (LIT APP) ------------------
-app.use(express.static(path.join(__dirname, '../dist')));
-
 // Start the server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
-}); 
+});
