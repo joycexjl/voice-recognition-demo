@@ -231,7 +231,7 @@ export class BatchTranscribe extends LitElement {
     try {
       console.log('Sending request to /api/transcribe');
 
-      const resp = await fetch('/api/transcribe', {
+      const resp = await fetch('http://localhost:3000/api/transcribe', {
         method: 'POST',
         body: formData,
         // Include credentials and CORS headers

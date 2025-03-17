@@ -48,17 +48,9 @@ export async function loadSocketIO(): Promise<SocketIO> {
 export async function createSocketClient(): Promise<SocketClient> {
   const io = await loadSocketIO();
 
-  // Get the current domain for the socket connection
-  // This allows the app to work both locally and when deployed
-  const socketUrl =
-    window.location.hostname === 'localhost'
-      ? 'http://localhost:3000'
-      : window.location.origin;
-
-  console.log(`Connecting to Socket.IO server at: ${socketUrl}`);
-
   // Connect to the server with explicit configuration
-  return io(socketUrl, {
+  // This ensures we're connecting to the correct server with the right settings
+  return io('http://localhost:3000', {
     withCredentials: true,
     transports: ['websocket', 'polling'],
     reconnectionAttempts: 5,

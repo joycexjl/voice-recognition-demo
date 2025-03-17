@@ -13,11 +13,7 @@ const server = http.createServer(app);
 // Configure Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: [
-      'http://localhost:8080',
-      'http://127.0.0.1:8080',
-      'https://voice.pipzza.pw',
-    ],
+    origin: ['http://localhost:8080', 'http://127.0.0.1:8080'],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -27,19 +23,38 @@ const io = new Server(server, {
 // 2) Google Speech Client
 // This reads credentials from the GOOGLE_APPLICATION_CREDENTIALS env variable
 // or from the path we provide
-const speechClient = new SpeechClient({
-  keyFilename: path.join(__dirname, '../nlip-pwa-89f5620f7edd.json'),
-});
+let speechClient;
+try {
+  // First try to use the credentials file
+  const keyFilePath = path.join(__dirname, '../nlip-pwa-89f5620f7edd.json');
+  speechClient = new SpeechClient({
+    keyFilename: keyFilePath,
+  });
+  console.log('Google Speech client initialized with credentials file');
+} catch (error) {
+  console.error(
+    'Error initializing Google Speech client with credentials file:',
+    error
+  );
+
+  try {
+    // Fallback to environment variable
+    speechClient = new SpeechClient();
+    console.log('Google Speech client initialized with environment variable');
+  } catch (fallbackError) {
+    console.error('Failed to initialize Google Speech client:', fallbackError);
+    throw new Error(
+      'Could not initialize Google Speech client. Please check your credentials.'
+    );
+  }
+}
 
 // 3) Multer for file uploads (in-memory)
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Enable CORS for Express
 app.use((req, res, next) => {
-  res.header(
-    'Access-Control-Allow-Origin',
-    req.headers.origin || 'https://voice.pipzza.pw'
-  );
+  res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
   res.header(
     'Access-Control-Allow-Headers',
     'Origin, X-Requested-With, Content-Type, Accept'
@@ -48,9 +63,6 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Credentials', 'true');
   next();
 });
-
-// Serve static files from the build directory in production
-app.use(express.static(path.join(__dirname, '../')));
 
 // ---------------- BATCH API ENDPOINT ------------------
 
@@ -148,6 +160,9 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+// ---------------- SERVE STATIC FILES (LIT APP) ------------------
+app.use(express.static(path.join(__dirname, '../dist')));
 
 // Start the server
 const PORT = process.env.PORT || 3000;
