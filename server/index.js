@@ -119,6 +119,17 @@ io.on('connection', (socket) => {
           sampleRateHertz: 48000,
           languageCode: 'en-US',
           enableAutomaticPunctuation: true,
+          // Enable word-level timestamps for more granular results
+          enableWordTimeOffsets: true,
+          // Increase speech context hints for more accurate transcription
+          speechContexts: [
+            {
+              phrases: ['transcribe', 'speech', 'voice', 'recognition'],
+              boost: 10,
+            },
+          ],
+          // Set model to latest for better performance
+          model: 'latest_long',
           ...config,
         },
         interimResults: true, // get partial transcripts
