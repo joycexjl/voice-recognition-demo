@@ -7,6 +7,7 @@
   "repository": "github:IBM/pwa-lit-template",
   "scripts": {
     "build": "rimraf server/dist/ && rollup --config",
+    "dev": "concurrently \"npm run serve\" \"npm run start:server\"",
     "format": "npm-run-all format:*",
     "format:eslint": "npm run lint:eslint -- --fix",
     "format:prettier": "prettier '**/*' --ignore-unknown --ignore-path .gitignore --write",
@@ -18,7 +19,6 @@
     "serve": "web-dev-server --watch --port 8080",
     "start": "npm run serve",
     "start:server": "node server/index.js",
-    "dev": "concurrently \"npm run serve\" \"npm run start:server\"",
     "test": "echo \"Error: no test specified\"",
     "types:check": "npm-run-all --parallel types:check:*",
     "types:check:lit-analyzer": "lit-analyzer src/{components,pages}/**/*.ts --strict",
@@ -27,12 +27,11 @@
   "dependencies": {
     "@google-cloud/speech": "^6.7.1",
     "@vaadin/router": "^1.7.5",
+    "cors": "^2.8.5",
     "express": "^4.21.2",
     "lit": "^2.7.1",
     "multer": "^1.4.5-lts.1",
     "pwa-helper-components": "~0.2.10",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
     "tslib": "^2.5.0"
   },
   "devDependencies": {

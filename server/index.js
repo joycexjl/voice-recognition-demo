@@ -2,88 +2,58 @@ const http = require('http');
 const path = require('path');
 
 const { SpeechClient } = require('@google-cloud/speech');
+const cors = require('cors');
 const express = require('express');
 const multer = require('multer');
-const { Server } = require('socket.io');
 
-// 1) Express & Socket.IO Setup
+// Express setup
 const app = express();
 const server = http.createServer(app);
 
-// Configure Socket.IO with CORS
-const io = new Server(server, {
-  cors: {
-    origin: ['http://localhost:8080', 'http://127.0.0.1:8080'],
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
-  transports: ['websocket', 'polling'],
-});
-
-// 2) Google Speech Client
-// This reads credentials from the GOOGLE_APPLICATION_CREDENTIALS env variable
-// or from the path we provide
+// Initialize Google Speech client
 let speechClient;
 try {
-  // First try to use the credentials file
   const keyFilePath = path.join(__dirname, '../nlip-pwa-89f5620f7edd.json');
-  speechClient = new SpeechClient({
-    keyFilename: keyFilePath,
-  });
-  console.log('Google Speech client initialized with credentials file');
+  speechClient = new SpeechClient({ keyFilename: keyFilePath });
 } catch (error) {
-  console.error(
-    'Error initializing Google Speech client with credentials file:',
-    error
-  );
-
   try {
-    // Fallback to environment variable
     speechClient = new SpeechClient();
-    console.log('Google Speech client initialized with environment variable');
   } catch (fallbackError) {
-    console.error('Failed to initialize Google Speech client:', fallbackError);
     throw new Error(
       'Could not initialize Google Speech client. Please check your credentials.'
     );
   }
 }
 
-// 3) Multer for file uploads (in-memory)
+// Multer for file uploads (in-memory)
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Enable CORS for Express
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:8080');
-  res.header(
-    'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept'
-  );
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  next();
-});
+// Enable CORS
+app.use(
+  cors({
+    origin: ['http://localhost:8080', 'http://127.0.0.1:8080'],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true,
+  })
+);
 
-// ---------------- BATCH API ENDPOINT ------------------
+// Store active streams and SSE clients by session ID
+const activeStreams = new Map();
+const sseClients = new Map();
 
-// POST /api/transcribe (Batch)
+// Batch transcription API endpoint
 app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No audio file uploaded.' });
     }
 
-    // Convert the uploaded buffer to base64
     const audioBytes = req.file.buffer.toString('base64');
-
-    // Configure request
     const request = {
-      audio: {
-        content: audioBytes,
-      },
+      audio: { content: audioBytes },
       config: {
-        encoding: 'WEBM_OPUS', // or 'LINEAR16', etc., as appropriate
-        sampleRateHertz: 48000, // typical for webm/opus
+        encoding: 'WEBM_OPUS',
+        sampleRateHertz: 48000,
         languageCode: 'en-US',
         enableAutomaticPunctuation: true,
       },
@@ -101,78 +71,127 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-// ---------------- REAL-TIME (STREAMING) SETUP ------------------
+// SSE endpoint for streaming transcription
+app.get('/stream/:sessionId', (req, res) => {
+  const sessionId = req.params.sessionId;
+  console.log(`Client connected to SSE stream: ${sessionId}`);
 
-// Socket.IO connection
-io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-  let recognizeStream = null;
+  // Set headers for SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
-  // Client triggers "startStream" to begin streaming to Google
-  socket.on('startStream', (config) => {
-    console.log('startStream received');
-    // Create a new streamingRecognize request
-    recognizeStream = speechClient
-      .streamingRecognize({
-        config: {
-          encoding: 'WEBM_OPUS', // or 'LINEAR16' if you plan raw PCM
-          sampleRateHertz: 48000,
-          languageCode: 'en-US',
-          enableAutomaticPunctuation: true,
-          // Enable word-level timestamps for more granular results
-          enableWordTimeOffsets: true,
-          // Increase speech context hints for more accurate transcription
-          speechContexts: [
-            {
-              phrases: ['transcribe', 'speech', 'voice', 'recognition'],
-              boost: 10,
-            },
-          ],
-          // Set model to latest for better performance
-          model: 'latest_long',
-          ...config,
-        },
-        interimResults: true, // get partial transcripts
-      })
-      .on('error', (err) => {
-        console.error('Streaming error:', err);
-        socket.emit('streamError', err.toString());
-      })
-      .on('data', (data) => {
-        if (data.results && data.results[0]) {
-          const transcript = data.results[0].alternatives[0].transcript;
-          const isFinal = data.results[0].isFinal;
-          // Send partial or final transcripts back to the client
-          socket.emit('transcriptionData', { transcript, isFinal });
-        }
-      });
-  });
+  // Send an initial connection message
+  res.write('data: {"connected":true}\n\n');
 
-  // "audioData" event - raw audio chunks from the client
-  socket.on('audioData', (audioChunk) => {
-    if (recognizeStream) {
-      recognizeStream.write(audioChunk);
-    }
-  });
+  // Store the client connection
+  sseClients.set(sessionId, res);
 
-  // "stopStream" event - end the streaming
-  socket.on('stopStream', () => {
-    if (recognizeStream) {
-      recognizeStream.end();
-      recognizeStream = null;
-    }
-  });
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log(`SSE client disconnected: ${sessionId}`);
+    sseClients.delete(sessionId);
 
-  // Cleanup on disconnect
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-    if (recognizeStream) {
-      recognizeStream.end();
+    // Clean up any active stream
+    const stream = activeStreams.get(sessionId);
+    if (stream) {
+      stream.end();
+      activeStreams.delete(sessionId);
     }
   });
 });
 
-// ---------------- SERVE STATIC FILES (LIT APP) ------------------
+// Start a new transcription stream
+app.post('/start/:sessionId', (req, res) => {
+  const sessionId = req.params.sessionId;
+  console.log(`Start stream request for session: ${sessionId}`);
+
+  // Check if we have a client connection
+  const client = sseClients.get(sessionId);
+  if (!client) {
+    return res
+      .status(400)
+      .json({ error: 'No active SSE connection for this session' });
+  }
+
+  // Create a new streamingRecognize request
+  const recognizeStream = speechClient
+    .streamingRecognize({
+      config: {
+        encoding: 'WEBM_OPUS',
+        sampleRateHertz: 48000,
+        languageCode: 'en-US',
+        enableAutomaticPunctuation: true,
+        enableWordTimeOffsets: true,
+        model: 'latest_long',
+      },
+      interimResults: true,
+    })
+    .on('error', (err) => {
+      console.error('Streaming error:', err);
+      const client = sseClients.get(sessionId);
+      if (client) {
+        client.write(`event: streamError\ndata: ${err.toString()}\n\n`);
+      }
+    })
+    .on('data', (data) => {
+      if (data.results && data.results[0]) {
+        const transcript = data.results[0].alternatives[0].transcript;
+        const isFinal = data.results[0].isFinal;
+
+        const client = sseClients.get(sessionId);
+        if (client) {
+          client.write(
+            `event: transcriptionData\ndata: ${JSON.stringify({
+              transcript,
+              isFinal,
+            })}\n\n`
+          );
+        }
+      }
+    });
+
+  // Store the stream for this session
+  activeStreams.set(sessionId, recognizeStream);
+
+  res.status(200).json({ status: 'Stream started' });
+});
+
+// Handle audio data
+app.post(
+  '/audio/:sessionId',
+  express.raw({ type: 'audio/*', limit: '1mb' }),
+  (req, res) => {
+    const sessionId = req.params.sessionId;
+    const recognizeStream = activeStreams.get(sessionId);
+
+    if (!recognizeStream) {
+      return res
+        .status(400)
+        .json({ error: 'No active stream for this session' });
+    }
+
+    recognizeStream.write(req.body);
+    res.status(200).json({ status: 'Audio received' });
+  }
+);
+
+// Stop a transcription stream
+app.post('/stop/:sessionId', (req, res) => {
+  const sessionId = req.params.sessionId;
+  const recognizeStream = activeStreams.get(sessionId);
+
+  if (recognizeStream) {
+    recognizeStream.end();
+    activeStreams.delete(sessionId);
+    console.log(`Stream ended for session: ${sessionId}`);
+  }
+
+  res.status(200).json({ status: 'Stream stopped' });
+});
+
+// Serve static files
 app.use(express.static(path.join(__dirname, '../dist')));
 
 // Start the server

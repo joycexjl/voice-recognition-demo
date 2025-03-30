@@ -1,11 +1,18 @@
+/* stylelint-disable */
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 
-import { createSocketClient, SocketClient } from '../helpers/socket-client.js';
+import {
+  createStreamConnection,
+  sendAudioData,
+  startStream,
+  stopStream,
+} from '../helpers/stream-client.js';
 
 interface Transcript {
   transcript: string;
   isFinal: boolean;
+  edited?: boolean;
 }
 
 @customElement('streaming-transcribe')
@@ -13,42 +20,43 @@ export class StreamingTranscribe extends LitElement {
   static styles = css`
     :host {
       display: block;
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 16px;
+      width: 100%;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+        Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue',
+        sans-serif;
     }
 
     .container {
-      padding: 20px;
-      border-radius: 8px;
-      background-color: #f5f5f5;
-      box-shadow: 0 2px 4px rgb(0 0 0 / 10%);
-    }
-
-    h2 {
-      margin-top: 0;
-      color: #333;
+      display: flex;
+      flex-direction: column;
+      max-width: 800px;
+      height: 100%;
+      margin: 0 auto;
+      padding: 1rem;
     }
 
     .controls {
       display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
+      flex-shrink: 0;
+      gap: 1rem;
+      margin-bottom: 1rem;
     }
 
     button {
-      padding: 10px 16px;
+      flex-shrink: 0;
+      padding: 0.5rem 1rem;
       border: none;
       border-radius: 4px;
-      background-color: #4285f4;
+      background-color: #007bff;
       color: white;
-      font-weight: bold;
+      font-size: 1rem;
       cursor: pointer;
-      transition: background-color 0.3s;
+      transition: background-color 0.2s;
     }
 
     button:hover {
-      background-color: #3367d6;
+      background-color: #0056b3;
     }
 
     button:disabled {
@@ -56,120 +64,107 @@ export class StreamingTranscribe extends LitElement {
       cursor: not-allowed;
     }
 
-    button.stop {
-      background-color: #ea4335;
-    }
-
-    button.stop:hover {
-      background-color: #d33426;
-    }
-
     .transcripts {
-      overflow-y: auto;
-      max-height: 400px;
-      margin-top: 20px;
-      padding: 16px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      background-color: white;
-    }
-
-    .transcript-item {
-      margin-bottom: 10px;
-      padding: 8px;
-      border-radius: 4px;
-    }
-
-    .transcript-item.final {
-      background-color: #e8f0fe;
-    }
-
-    .transcript-item.partial {
-      border-left: 3px solid #4285f4;
-      background-color: #f8f9fa;
-      font-style: italic;
-      animation: fade-in 0.3s ease-in-out;
-    }
-
-    @keyframes fade-in {
-      from {
-        opacity: 0.7;
-        transform: translateY(2px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .transcript-item.partial strong {
-      color: #4285f4;
-    }
-
-    .status {
-      margin-top: 10px;
-      color: #666;
-      font-size: 14px;
-    }
-
-    .recording {
       display: flex;
-      align-items: center;
-      color: #ea4335;
-      font-weight: bold;
+      flex: 1;
+      flex-direction: column;
+      gap: 0.5rem;
+      overflow-y: auto;
+      min-height: 0;
+      margin-bottom: 1rem;
     }
 
-    .recording-indicator {
-      width: 12px;
-      height: 12px;
-      margin-right: 8px;
-      border-radius: 50%;
-      background-color: #ea4335;
-      animation: pulse 1.5s infinite;
+    .transcript-container {
+      position: relative;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-height: 100px;
+      padding: 0.5rem;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      background-color: #f8f9fa;
     }
 
-    @keyframes pulse {
-      0% {
-        opacity: 1;
-      }
+    .transcript-container textarea {
+      flex: 1;
+      overflow-y: auto;
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 100px;
+      padding: 0.5rem;
+      border: none;
+      background: transparent;
+      font-size: inherit;
+      font-family: inherit;
+      line-height: inherit;
+      resize: none;
+    }
+
+    .transcript-container textarea:focus {
+      outline: none;
+    }
+
+    .transcript-container textarea::placeholder {
+      color: #6c757d;
+    }
+
+    .transcript-container.editable textarea {
+      border: 1px solid #007bff;
+      background-color: white;
+      cursor: text;
+    }
+
+    .transcript-container.editable textarea:focus {
+      outline: 2px solid #007bff;
+      outline-offset: -2px;
+    }
+
+    .transcript-container.typing::after {
+      content: '';
+      position: absolute;
+      right: 1rem;
+      bottom: 1rem;
+      width: 2px;
+      height: 1.2em;
+      background-color: #007bff;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
       50% {
-        opacity: 0.4;
-      }
-      100% {
-        opacity: 1;
+        opacity: 0;
       }
     }
 
     .error {
-      margin-top: 10px;
-      padding: 10px;
-      border: 1px solid #ffcdd2;
+      flex-shrink: 0;
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      border: 1px solid #f5c6cb;
       border-radius: 4px;
-      background-color: #ffebee;
-      color: #ea4335;
+      background-color: #f8d7da;
+      color: #dc3545;
     }
 
-    .troubleshooting {
-      margin-top: 10px;
-      padding: 10px;
-      border: 1px solid #c8e6c9;
-      border-radius: 4px;
-      background-color: #e8f5e9;
+    .status {
+      flex-shrink: 0;
+      margin-top: 0.5rem;
+      color: #6c757d;
+      font-size: 0.875rem;
     }
 
-    .troubleshooting h3 {
-      margin-top: 0;
-      font-size: 16px;
-    }
-
-    .troubleshooting ul {
-      margin: 0;
-      padding-left: 20px;
+    .edit-indicator {
+      flex-shrink: 0;
+      margin-top: 0.25rem;
+      color: #6c757d;
+      font-style: italic;
+      font-size: 0.75rem;
     }
   `;
 
   @state()
-  private socket: SocketClient | null = null;
+  private eventSource: EventSource | null = null;
 
   @state()
   private mediaRecorder: MediaRecorder | null = null;
@@ -182,6 +177,12 @@ export class StreamingTranscribe extends LitElement {
 
   @state()
   private currentPartial = '';
+
+  @state()
+  private previousPartial = '';
+
+  @state()
+  private isTyping = false;
 
   @state()
   private error = '';
@@ -198,107 +199,60 @@ export class StreamingTranscribe extends LitElement {
   @state()
   private showTroubleshooting = false;
 
+  @state()
+  private sessionId = '';
+
+  @state()
+  private isEditing = false;
+
   render() {
     return html`
       <div class="container">
-        <h2>Streaming Transcription</h2>
-
         <div class="controls">
-          <button
-            @click=${this._startRecording}
-            ?disabled=${this.isRecording ||
-            !this.isConnected ||
-            this.isConnecting}
-          >
+          <button @click=${this._startRecording} ?disabled=${this.isRecording}>
             Start Recording
           </button>
-          <button
-            class="stop"
-            @click=${this._stopRecording}
-            ?disabled=${!this.isRecording}
-          >
+          <button @click=${this._stopRecording} ?disabled=${!this.isRecording}>
             Stop Recording
           </button>
-          ${this.error
-            ? html`<button
-                @click=${this._retryConnection}
-                ?disabled=${this.isConnecting}
-              >
-                Retry Connection
-              </button>`
-            : ''}
+        </div>
+
+        ${this.error ? html` <div class="error">${this.error}</div> ` : null}
+
+        <div class="transcripts">
+          ${this.transcripts.map(
+            (t) => html`
+              <div class="transcript-container ${t.edited ? 'editable' : ''}">
+                <textarea
+                  .value=${t.transcript}
+                  ?readonly=${!t.edited}
+                  @change=${(e: Event) => this._handleTranscriptEdit(e, t)}
+                  placeholder="Transcription will appear here..."
+                ></textarea>
+                ${t.edited
+                  ? html` <div class="edit-indicator">(Edited)</div> `
+                  : null}
+              </div>
+            `
+          )}
+          ${this.currentPartial
+            ? html`
+                <div
+                  class="transcript-container ${this.isTyping ? 'typing' : ''}"
+                >
+                  <textarea
+                    .value=${this.currentPartial}
+                    readonly
+                    placeholder="Partial transcription will appear here..."
+                  ></textarea>
+                </div>
+              `
+            : null}
         </div>
 
         ${this.isRecording
-          ? html`<div class="recording">
-              <div class="recording-indicator"></div>
-              Recording...
-            </div>`
-          : ''}
-        ${this.error
-          ? html`
-              <div class="error">
-                <strong>Error:</strong> ${this.error}
-                <button
-                  @click=${() =>
-                    (this.showTroubleshooting = !this.showTroubleshooting)}
-                >
-                  ${this.showTroubleshooting ? 'Hide' : 'Show'} Troubleshooting
-                  Tips
-                </button>
-              </div>
-              ${this.showTroubleshooting
-                ? html`
-                    <div class="troubleshooting">
-                      <h3>Troubleshooting Tips:</h3>
-                      <ul>
-                        <li>
-                          Make sure the server is running at
-                          http://localhost:3000
-                        </li>
-                        <li>Check if your browser allows microphone access</li>
-                        <li>Try refreshing the page</li>
-                        <li>
-                          Check if your firewall is blocking WebSocket
-                          connections
-                        </li>
-                        <li>Try using a different browser</li>
-                      </ul>
-                    </div>
-                  `
-                : ''}
-            `
-          : ''}
-        ${this.isConnecting
-          ? html`<div class="status">
-              Connecting to server (attempt ${this.connectionAttempts})...
-            </div>`
-          : !this.isConnected && !this.error
-          ? html`<div class="status">Connecting to server...</div>`
-          : ''}
-
-        <div class="transcripts">
-          ${this.transcripts.length === 0 && !this.currentPartial
-            ? html`<div class="status">
-                Speak after clicking "Start Recording"
-              </div>`
-            : html`
-                ${this.transcripts.map(
-                  (t) => html`
-                    <div class="transcript-item final">
-                      <strong>Final:</strong> ${t.transcript}
-                    </div>
-                  `
-                )}
-                ${this.currentPartial
-                  ? html`
-                      <div class="transcript-item partial">
-                        <strong>Partial:</strong> ${this.currentPartial}
-                      </div>
-                    `
-                  : ''}
-              `}
-        </div>
+          ? html` <div class="status">Recording in progress...</div> `
+          : null}
       </div>
     `;
   }
@@ -307,73 +261,7 @@ export class StreamingTranscribe extends LitElement {
     if (super.connectedCallback) {
       super.connectedCallback();
     }
-    this._initializeSocket();
-  }
-
-  private async _initializeSocket() {
-    this.isConnecting = true;
-    this.connectionAttempts++;
-
-    try {
-      console.log(
-        `Attempting to connect to Socket.IO server (attempt ${this.connectionAttempts})...`
-      );
-
-      // Create a Socket.IO client using our wrapper
-      this.socket = await createSocketClient();
-
-      this.socket.on('connect', () => {
-        console.log('Socket connected:', this.socket?.id);
-        this.isConnected = true;
-        this.isConnecting = false;
-        this.error = '';
-      });
-
-      this.socket.on('disconnect', () => {
-        console.log('Socket disconnected');
-        this.isConnected = false;
-        this._stopRecording();
-      });
-
-      this.socket.on('connect_error', (err: Error) => {
-        console.error('Connection error:', err);
-        this.error = `Connection error: ${err.message}. Make sure the server is running at http://localhost:3000.`;
-        this.isConnected = false;
-        this.isConnecting = false;
-      });
-
-      this.socket.on('transcriptionData', (data: Transcript) => {
-        if (data.isFinal) {
-          // Add final transcript to the list of finished transcripts
-          this.transcripts = [...this.transcripts, data];
-          // Clear the current partial
-          this.currentPartial = '';
-        } else {
-          // Update the current partial transcript
-          this.currentPartial = data.transcript;
-        }
-
-        // Scroll to bottom of transcript container
-        setTimeout(() => {
-          const container = this.shadowRoot?.querySelector('.transcripts');
-          if (container) {
-            container.scrollTop = container.scrollHeight;
-          }
-        }, 0);
-      });
-
-      this.socket.on('streamError', (errorMsg: string) => {
-        console.error('Streaming error:', errorMsg);
-        this.error = `Streaming error: ${errorMsg}`;
-        this._stopRecording();
-      });
-    } catch (err) {
-      console.error('Failed to initialize socket:', err);
-      this.error = `Failed to initialize socket: ${
-        err instanceof Error ? err.message : String(err)
-      }`;
-      this.isConnecting = false;
-    }
+    this.sessionId = this._generateSessionId();
   }
 
   disconnectedCallback() {
@@ -381,12 +269,99 @@ export class StreamingTranscribe extends LitElement {
       super.disconnectedCallback();
     }
     this._stopRecording();
-    this.socket?.disconnect();
+    this._closeEventSource();
+  }
+
+  private _generateSessionId(): string {
+    return Date.now().toString(36) + Math.random().toString(36).substring(2);
   }
 
   private _retryConnection() {
     this.error = '';
-    this._initializeSocket();
+    this._setupEventSource();
+  }
+
+  private _setupEventSource() {
+    this.isConnecting = true;
+    this.connectionAttempts++;
+
+    try {
+      console.log(
+        `Setting up Server-Sent Events connection (attempt ${this.connectionAttempts})...`
+      );
+
+      this._closeEventSource();
+
+      this.eventSource = createStreamConnection(this.sessionId);
+
+      this.eventSource.onopen = () => {
+        console.log('SSE connection opened');
+        this.isConnected = true;
+        this.isConnecting = false;
+        this.error = '';
+      };
+
+      this.eventSource.onerror = (err) => {
+        console.error('SSE connection error:', err);
+        this.error =
+          'Connection error. Make sure the server is running at http://localhost:3000.';
+        this.isConnected = false;
+        this.isConnecting = false;
+        this._closeEventSource();
+      };
+
+      this.eventSource.addEventListener('transcriptionData', (event) => {
+        const data = JSON.parse(event.data) as Transcript;
+
+        if (data.isFinal) {
+          this.transcripts = [...this.transcripts, { ...data, edited: true }];
+          this.currentPartial = '';
+          this.isTyping = false;
+        } else {
+          this.previousPartial = this.currentPartial;
+          this.currentPartial = data.transcript;
+          this.isTyping = true;
+
+          // Reset typing state after a short delay
+          setTimeout(() => {
+            if (this.currentPartial === data.transcript) {
+              this.isTyping = false;
+            }
+          }, 500);
+        }
+
+        this._scrollToBottom();
+      });
+
+      this.eventSource.addEventListener('streamError', (event) => {
+        const errorMsg = event.data;
+        console.error('Streaming error:', errorMsg);
+        this.error = `Streaming error: ${errorMsg}`;
+        this._stopRecording();
+      });
+    } catch (err) {
+      console.error('Failed to setup EventSource:', err);
+      this.error = `Failed to setup EventSource: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      this.isConnecting = false;
+    }
+  }
+
+  private _scrollToBottom() {
+    setTimeout(() => {
+      const container = this.shadowRoot?.querySelector('.transcripts');
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }, 0);
+  }
+
+  private _closeEventSource() {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
   }
 
   async _startRecording() {
@@ -395,21 +370,15 @@ export class StreamingTranscribe extends LitElement {
       this.currentPartial = '';
       this.error = '';
 
-      // Check if we're connected to the server
-      if (!this.isConnected) {
-        this.error =
-          'Not connected to the server. Please retry the connection.';
-        return;
+      if (!this.eventSource) {
+        this._setupEventSource();
       }
 
-      // Check if the browser supports the MediaRecorder API
       if (!window.MediaRecorder) {
-        this.error =
-          'Your browser does not support the MediaRecorder API. Please try a different browser.';
+        this.error = 'Your browser does not support the MediaRecorder API.';
         return;
       }
 
-      // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -418,47 +387,45 @@ export class StreamingTranscribe extends LitElement {
         },
       });
 
-      // Check if the browser supports the WebM/Opus codec
       let mimeType = 'audio/webm; codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = '';
-        this.error =
-          'Warning: Your browser does not support the WebM/Opus codec. Using default codec instead.';
       }
 
-      // Setup MediaRecorder with Opus if supported
       this.mediaRecorder = new MediaRecorder(
         stream,
         mimeType ? { mimeType } : undefined
       );
 
-      // Fire up the server side streaming
-      this.socket?.emit('startStream', {
-        // Optional: pass extra config (languageCode, etc.)
-      });
-
-      this.mediaRecorder.ondataavailable = (e) => {
+      this.mediaRecorder.ondataavailable = async (e) => {
         if (e.data && e.data.size > 0) {
-          // Send chunk to server
-          this.socket?.emit('audioData', e.data);
+          try {
+            await sendAudioData(
+              this.sessionId,
+              e.data,
+              mimeType || 'audio/webm'
+            );
+          } catch (err) {
+            console.error('Error sending audio data:', err);
+            this.error = `Error sending audio data: ${
+              err instanceof Error ? err.message : String(err)
+            }`;
+          }
         }
       };
 
-      // Send data in small intervals - reduced from 250ms to 100ms for more frequent updates
-      this.mediaRecorder.start(100); // gather chunks every 100ms for more responsive transcription
+      await startStream(this.sessionId);
+      this.mediaRecorder.start(100);
       this.isRecording = true;
     } catch (err) {
       console.error('Could not start recording:', err);
 
-      // Provide more specific error messages based on the error
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        this.error =
-          'Microphone access denied. Please allow microphone access in your browser settings.';
+        this.error = 'Microphone access denied.';
       } else if (err instanceof DOMException && err.name === 'NotFoundError') {
-        this.error =
-          'No microphone found. Please connect a microphone and try again.';
+        this.error = 'No microphone found.';
       } else {
-        this.error = `Could not start recording: ${
+        this.error = `Recording error: ${
           err instanceof Error ? err.message : String(err)
         }`;
       }
@@ -467,25 +434,29 @@ export class StreamingTranscribe extends LitElement {
     }
   }
 
-  _stopRecording() {
+  async _stopRecording() {
     if (this.mediaRecorder && this.isRecording) {
       this.mediaRecorder.stop();
-
-      // Stop all audio tracks
       this.mediaRecorder.stream.getTracks().forEach((track) => track.stop());
-
       this.mediaRecorder = null;
       this.isRecording = false;
 
-      // Tell server to stop the GCP stream
-      this.socket?.emit('stopStream');
+      try {
+        await stopStream(this.sessionId);
+      } catch (err) {
+        console.error('Error stopping stream:', err);
+      }
     }
   }
-}
 
-// Add the io property to the Window interface
-declare global {
-  interface Window {
-    io: any;
+  private _handleTranscriptEdit(event: Event, transcript: Transcript) {
+    const textarea = event.target as HTMLTextAreaElement;
+    const newText = textarea.value;
+
+    if (newText !== transcript.transcript) {
+      transcript.transcript = newText;
+      transcript.edited = true;
+      this.requestUpdate();
+    }
   }
 }
