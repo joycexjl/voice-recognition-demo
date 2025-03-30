@@ -10,3 +10,5 @@ export default {
   appName: 'MyApplication',
   appDescription: 'MyApplication description',
 };
+
+export const API_BASE_URL = window.location.origin; // This will automatically use your proxy's domain

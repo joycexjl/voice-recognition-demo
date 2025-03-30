@@ -5,9 +5,11 @@
 /**
  * Creates an EventSource connection for streaming transcription
  */
+import { API_BASE_URL } from '../config.js';
+
 export function createStreamConnection(
   sessionId: string,
-  baseUrl = 'http://localhost:3000'
+  baseUrl = API_BASE_URL
 ): EventSource {
   if (!('EventSource' in window)) {
     throw new Error('Server-Sent Events are not supported in this browser');
@@ -23,7 +25,7 @@ export async function sendAudioData(
   sessionId: string,
   audioData: Blob,
   contentType: string,
-  baseUrl = 'http://localhost:3000'
+  baseUrl = API_BASE_URL
 ): Promise<void> {
   await fetch(`${baseUrl}/audio/${sessionId}`, {
     method: 'POST',
@@ -39,7 +41,7 @@ export async function sendAudioData(
  */
 export async function startStream(
   sessionId: string,
-  baseUrl = 'http://localhost:3000'
+  baseUrl = API_BASE_URL
 ): Promise<void> {
   await fetch(`${baseUrl}/start/${sessionId}`, {
     method: 'POST',
@@ -51,7 +53,7 @@ export async function startStream(
  */
 export async function stopStream(
   sessionId: string,
-  baseUrl = 'http://localhost:3000'
+  baseUrl = API_BASE_URL
 ): Promise<void> {
   await fetch(`${baseUrl}/stop/${sessionId}`, {
     method: 'POST',
